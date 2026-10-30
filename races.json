@@ -1,0 +1,36 @@
+{
+  "feed_url": "https://static.electionresults.vermont.gov/elections/rss/68d61e96-1d28-4210-8c1d-8e90512ae105/election-summary.xml",
+  "output_dir": "data",
+  "races": [
+    {
+      "slug": "states-attorney-chittenden",
+      "office": "STATE'S ATTORNEY",
+      "district": "CHITTENDEN County"
+    },
+    {
+      "slug": "states-attorney-franklin",
+      "office": "STATE'S ATTORNEY",
+      "district": "FRANKLIN County"
+    },
+    {
+      "slug": "states-attorney-grand-isle",
+      "office": "STATE'S ATTORNEY",
+      "district": "GRAND ISLE County"
+    },
+    {
+      "slug": "sheriff-franklin",
+      "office": "SHERIFF",
+      "district": "FRANKLIN County"
+    },
+    {
+      "slug": "sheriff-orange",
+      "office": "SHERIFF",
+      "district": "ORANGE County"
+    },
+    {
+      "slug": "sheriff-windsor",
+      "office": "SHERIFF",
+      "district": "WINDSOR County"
+    }
+  ]
+}
