@@ -115,6 +115,9 @@ def build_rows(office_el, overrides=None):
                 "Winner": (c.findtext("Winner") or "").strip().lower() == "true",
             }
         )
+    for c in cands:
+        if c["Winner"]:
+            c["Candidate"] = "\u2713 " + c["Candidate"]
     total = sum(c["Votes"] for c in cands)
     for c in cands:
         c["Percent"] = round(c["Votes"] / total * 100, 1) if total else 0.0
@@ -128,7 +131,7 @@ def render_csv(rows):
     w = csv.DictWriter(buf, fieldnames=FIELDS, lineterminator="\n", extrasaction="ignore")
     w.writeheader()
     for r in rows:
-        w.writerow({**r, "Winner": "Yes" if r["Winner"] else ""})
+        w.writerow({**r, "Winner": "\u2713" if r["Winner"] else ""})
     return buf.getvalue()
 
 
