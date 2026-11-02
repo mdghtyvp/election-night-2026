@@ -11,6 +11,9 @@ Safety behavior:
     keeps showing the last good data.
   * If one race fails, the others are still written. Exit code is 1 if any
     race failed, so the failure is visible in the Actions log.
+  * Candidate is a display name: Title Case + party initials, e.g.
+    "Sarah George (D/P)". Odd capitalizations (DeFazio, etc.) can be fixed
+    with "name_overrides" in races.json: {"JOHN DEFAZIO": "John DeFazio"}.
   * CSVs are written only if their content changed (stable output, so git
     only sees a diff when the numbers actually move).
 
@@ -55,6 +58,42 @@ def find_offices(root, office, district):
     ]
 
 
+SUFFIXES = {"JR": "Jr.", "SR": "Sr.", "II": "II", "III": "III", "IV": "IV"}
+
+
+def _title_token(tok):
+    """Title-case one space-separated token (handles O'BRIEN, MCRAE, hyphens)."""
+    if "-" in tok:
+        return "-".join(_title_token(t) for t in tok.split("-"))
+    bare = tok.strip(".,").upper()
+    if bare in SUFFIXES:
+        return SUFFIXES[bare] + ("," if tok.endswith(",") else "")
+    if len(bare) == 1:  # middle initial
+        return tok.upper()
+    if "'" in tok:
+        return "'".join(p[:1].upper() + p[1:].lower() for p in tok.split("'"))
+    if bare.startswith("MC") and len(bare) > 2:
+        return "Mc" + tok[2:3].upper() + tok[3:].lower()
+    return tok[:1].upper() + tok[1:].lower()
+
+
+def title_case(name):
+    return " ".join(_title_token(t) for t in name.split())
+
+
+def party_initials(party):
+    """'DEM/PROG' -> 'D/P', 'REPUBLICAN' -> 'R'. Empty if no party."""
+    parts = [p.strip() for p in (party or "").split("/") if p.strip()]
+    return "/".join(p[0].upper() for p in parts)
+
+
+def display_name(name, party, overrides=None):
+    key = " ".join((name or "").upper().split())
+    base = (overrides or {}).get(key) or title_case(name)
+    initials = party_initials(party)
+    return f"{base} ({initials})" if initials else base
+
+
 def to_int(text):
     try:
         return int((text or "0").strip().replace(",", ""))
@@ -62,13 +101,15 @@ def to_int(text):
         return 0
 
 
-def build_rows(office_el):
+def build_rows(office_el, overrides=None):
     cands = []
     for i, c in enumerate(office_el.findall("Candidate")):
         cands.append(
             {
                 "order": i,
-                "Candidate": " ".join((c.findtext("Name") or "").split()),
+                "Candidate": display_name(
+                    c.findtext("Name"), c.findtext("PartyName"), overrides
+                ),
                 "Party": " ".join((c.findtext("PartyName") or "").split()),
                 "Votes": to_int(c.findtext("Votes")),
                 "Winner": (c.findtext("Winner") or "").strip().lower() == "true",
@@ -122,7 +163,7 @@ def main():
             if len(matches) != 1:
                 raise ValueError(f"expected exactly 1 matching race, found {len(matches)}")
 
-            rows = build_rows(matches[0])
+            rows = build_rows(matches[0], config.get("name_overrides"))
             if not rows:
                 raise ValueError("race found but it has no candidates")
 
