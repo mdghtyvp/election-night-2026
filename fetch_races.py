@@ -17,6 +17,18 @@ Safety behavior:
   * CSVs are written only if their content changed (stable output, so git
     only sees a diff when the numbers actually move).
 
+Hiding stray write-ins (settings in races.json, can be overridden per race):
+  * "hide_votes_at_or_below": candidates with this many votes or fewer are
+    left out of the CSV (default 1). Set to null to turn hiding off.
+  * "hide_min_race_total": hiding only kicks in once the race has at least
+    this many total votes (default 100), so a real candidate is never hidden
+    during the first few town reports.
+  * A candidate the state has flagged as Winner is never hidden.
+  * Percent is always computed against ALL votes cast in the race, including
+    hidden candidates, so the shown percentages stay accurate (they may sum
+    to slightly under 100).
+  * Every hidden candidate is printed in the Actions log as [hidden].
+
 Usage:
   python fetch_races.py                      # live feed from races.json
   python fetch_races.py --feed-file x.xml    # test against a local file
@@ -32,6 +44,9 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 FIELDS = ["Candidate", "Party", "Votes", "Percent", "Winner"]
+
+DEFAULT_HIDE_VOTES_AT_OR_BELOW = 1
+DEFAULT_HIDE_MIN_RACE_TOTAL = 100
 
 
 def norm(s):
@@ -101,7 +116,8 @@ def to_int(text):
         return 0
 
 
-def build_rows(office_el, overrides=None):
+def build_rows(office_el, overrides=None, hide_at_or_below=None, hide_min_total=0):
+    """Return (shown_rows, hidden_rows)."""
     cands = []
     for i, c in enumerate(office_el.findall("Candidate")):
         cands.append(
@@ -118,12 +134,18 @@ def build_rows(office_el, overrides=None):
     for c in cands:
         if c["Winner"]:
             c["Candidate"] = "\u2713 " + c["Candidate"]
+    # Percent uses every vote in the race, including candidates hidden below.
     total = sum(c["Votes"] for c in cands)
     for c in cands:
         c["Percent"] = round(c["Votes"] / total * 100, 1) if total else 0.0
     # Leader first; ties keep the feed's own order so the chart doesn't jitter.
     cands.sort(key=lambda c: (-c["Votes"], c["order"]))
-    return cands
+
+    if hide_at_or_below is None or total < hide_min_total:
+        return cands, []
+    shown = [c for c in cands if c["Winner"] or c["Votes"] > hide_at_or_below]
+    hidden = [c for c in cands if not (c["Winner"] or c["Votes"] > hide_at_or_below)]
+    return shown, hidden
 
 
 def render_csv(rows):
@@ -133,6 +155,13 @@ def render_csv(rows):
     for r in rows:
         w.writerow({**r, "Winner": "\u2713" if r["Winner"] else ""})
     return buf.getvalue()
+
+
+def setting(race, config, key, default):
+    """Per-race value wins, then the top-level races.json value, then default."""
+    if key in race:
+        return race[key]
+    return config.get(key, default)
 
 
 def main():
@@ -166,9 +195,14 @@ def main():
             if len(matches) != 1:
                 raise ValueError(f"expected exactly 1 matching race, found {len(matches)}")
 
-            rows = build_rows(matches[0], config.get("name_overrides"))
+            rows, hidden = build_rows(
+                matches[0],
+                config.get("name_overrides"),
+                setting(race, config, "hide_votes_at_or_below", DEFAULT_HIDE_VOTES_AT_OR_BELOW),
+                setting(race, config, "hide_min_race_total", DEFAULT_HIDE_MIN_RACE_TOTAL),
+            )
             if not rows:
-                raise ValueError("race found but it has no candidates")
+                raise ValueError("race found but it has no candidates to show")
 
             text = render_csv(rows)
             path = out_dir / f"{slug}.csv"
@@ -179,6 +213,8 @@ def main():
                 print(f"[updated]   {slug}")
             for r in rows:
                 print(f"              {r['Candidate']} ({r['Party']}): {r['Votes']} ({r['Percent']}%)")
+            for r in hidden:
+                print(f"  [hidden]    {r['Candidate']} ({r['Party']}): {r['Votes']} ({r['Percent']}%)")
         except Exception as e:  # keep going so one bad race doesn't block the rest
             failures += 1
             print(f"[FAILED]    {slug} ({label}): {e}", file=sys.stderr)
